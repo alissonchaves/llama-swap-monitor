@@ -1,0 +1,9 @@
+.git
+.github
+__pycache__
+*.pyc
+power.db
+docs
+README*
+llama-dashboard.service
+99-rapl-readable.rules

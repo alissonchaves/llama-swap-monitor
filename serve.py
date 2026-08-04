@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-UPSTREAM = "http://localhost:8081"
+UPSTREAM = os.environ.get("LLAMA_SWAP_UPSTREAM", "http://localhost:8081").rstrip("/")
 # The loaded model's llama-server is reached DIRECTLY (not via llama-swap) so that
 # reading /slots can never trigger a model load/swap. llama-swap assigns each model
 # a fresh port (${PORT}), so the port is resolved per-request from /running rather
@@ -59,7 +59,7 @@ LLAMA_SWAP_CONTAINER = os.environ.get("LLAMA_SWAP_CONTAINER", "llama-swap")
 # GPU board power is measured (nvidia-smi via llama-swap). CPU+DRAM are measured
 # from Intel RAPL energy counters. BASE_W (mobo/drives/fans/NIC) and PSU_EFF are
 # the only estimated terms; tune via env if you ever get a Kill-A-Watt reading.
-DB_PATH = os.path.join(HERE, "power.db")
+DB_PATH = os.environ.get("POWER_DB", os.path.join(HERE, "power.db"))
 SAMPLE_INTERVAL = 10.0                 # seconds between samples
 RETAIN_DAYS = 30                       # trim time-series older than this
 MAX_GAP_S = 300                        # don't integrate across gaps > this (suspend/downtime)

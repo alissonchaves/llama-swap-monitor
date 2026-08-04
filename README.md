@@ -104,13 +104,38 @@ The `power.db` schema is migrated automatically on startup (new columns are adde
 
 Everything is a small edit near the top of the two files:
 
-- **Ports / hosts** — `serve.py`: `--port` / `--host` flags and the `UPSTREAM` llama-swap constant. Set `UPSTREAM` to the llama-swap address when the helper runs on another host.
+- **Ports / hosts** — `serve.py`: `--port` / `--host` flags and the `LLAMA_SWAP_UPSTREAM` environment variable. Set it to the llama-swap address when the helper runs on another host.
 - **Container metrics** — set `LLAMA_SWAP_CONTAINER` when `serve.py` needs to run `df`, CPU information, or GPU commands inside a Docker/Podman container.
 - **Bar thresholds** — `index.html`: GPU/system meters use `loadColor(pct, 60, 80)`; the context bar switches at 60% / 80%. Adjust to taste.
 - **Poll intervals / history depth** — `index.html` top of `<script>`: `PERF_MS` (perf poll), `HIST` (util history points), `DEC_HIST`, `LOG_CAP`, and the `/slots` interval in `onInflight`.
 - **GPU power limit** — read from `nvidia-smi` through `/_gpu_limits`; no fixed per-GPU wattage is assumed.
 - **Whole-system power model** — `serve.py`: `BASE_W` (mobo/drives/fans baseline, DC watts) and `PSU_EFF` (PSU DC→AC efficiency) are the only *estimated* terms in the wall figure; override without editing via `RIG_BASE_W` / `RIG_PSU_EFF` env vars. Set them from a Kill-A-Watt reading to calibrate. `SAMPLE_INTERVAL` (sampler period) and `RETAIN_DAYS` (time-series retention) also live here. Accumulated energy + $/kWh rate persist in `power.db` (sqlite, gitignored) and are global across browsers; reset via the ↺ on the tile.
 - **Inference-vs-idle threshold** — `serve.py`: `RIG_BUSY_UTIL` env var (default `5`) — the GPU-utilization percent above which a sample counts as *inference* rather than *idle* in the cost breakdown.
+
+### Run with Docker
+
+Build the image:
+
+    docker build -t llama-swap-monitor .
+
+If llama-swap runs in another container:
+
+    docker run -d --name llama-swap-monitor \
+      -p 8090:8090 \
+      -e LLAMA_SWAP_UPSTREAM=http://llama-swap:8081 \
+      -v llama-swap-monitor-data:/app/data \
+      llama-swap-monitor
+
+If llama-swap runs on the Docker host:
+
+    docker run -d --name llama-swap-monitor \
+      --add-host=host.docker.internal:host-gateway \
+      -p 8090:8090 \
+      -e LLAMA_SWAP_UPSTREAM=http://host.docker.internal:8081 \
+      -v llama-swap-monitor-data:/app/data \
+      llama-swap-monitor
+
+The volume keeps the accumulated power database across container recreations. GPU limits and host metrics require access to the host tools and devices; the dashboard still works without them.
 
 ## Notes
 
