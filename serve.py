@@ -8,20 +8,24 @@ Streams responses chunk-by-chunk so SSE (/api/events) works unbuffered.
 Pure stdlib. No parsing, no state. Run: python3 serve.py [--port 8090]
 """
 import argparse
+import glob
 import http.server
 import json
 import os
+import re
 import socket
 import socketserver
 import sqlite3
+import shutil
 import subprocess
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
-UPSTREAM = "http://127.0.0.1:8080"
+UPSTREAM = "http://10.255.4.52:8081"
 # The loaded model's llama-server is reached DIRECTLY (not via llama-swap) so that
 # reading /slots can never trigger a model load/swap. llama-swap assigns each model
 # a fresh port (${PORT}), so the port is resolved per-request from /running rather
@@ -39,6 +43,7 @@ RIG_LABEL = f"{RIG_NAME} monitor"
 # /_swebench (JSON) and /swebench (page). Opened read-only so serving can never
 # lock or corrupt a DB that ingest.py / grade.sh may be writing concurrently.
 SWEBENCH_DB = os.environ.get("SWEBENCH_DB", "/home/dwright/swebench-runs/results.db")
+LLAMA_SWAP_CONTAINER = os.environ.get("LLAMA_SWAP_CONTAINER", "llama-swap")
 
 # ---------------------------------------------------------------------------
 # Power / energy accounting
@@ -360,7 +365,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _is_proxied(self):
         return any(self.path == p or self.path.startswith(p) for p in PROXY_PREFIXES)
 
-    def _current_upstream(self):
+    def _current_upstream(self, model_id=None):
         """Base URL of the currently-loaded llama-server, or None if none is
         running. llama-swap assigns each model a fresh ${PORT}, so read the live
         port from /running rather than hardcoding one. A GET to /running never
@@ -369,6 +374,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with urllib.request.urlopen(UPSTREAM + "/running", timeout=2) as r:
                 running = json.load(r).get("running") or []
         except Exception:
+            return None
+        if model_id:
+            for item in running:
+                if item.get("model") == model_id:
+                    return item.get("proxy")
             return None
         return running[0].get("proxy") if running else None
 
@@ -393,17 +403,237 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             self._json({"ok": False, "error": str(e), "runs": [], "results": [], "meta": {}})
 
+    def _model_resources(self):
+        """Best-effort per-model GPU resources using llama-server PIDs.
+        llama-swap exposes aggregate GPU stats, so map each running model's
+        configured port to its process and then use nvidia-smi process data."""
+        try:
+            with urllib.request.urlopen(UPSTREAM + "/running", timeout=2) as r:
+                running = json.load(r).get("running") or []
+        except Exception:
+            return self._json({"models": []})
+        try:
+            ps = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=3)
+            processes = ps.stdout.splitlines() if ps.returncode == 0 else []
+        except Exception:
+            processes = []
+        pid_by_port = {}
+        for line in processes:
+            if "llama-server" not in line:
+                continue
+            m = re.match(r"\s*(\d+)\s+(.*)$", line)
+            if not m:
+                continue
+            port = re.search(r"(?:--port|-p)\s+(\d+)", m.group(2))
+            if port:
+                pid_by_port[port.group(1)] = int(m.group(1))
+
+        gpu_uuid = {}
+        try:
+            r = subprocess.run(["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"],
+                               capture_output=True, text=True, timeout=4)
+            for line in r.stdout.splitlines():
+                parts = [x.strip() for x in line.split(",")]
+                if len(parts) >= 2:
+                    gpu_uuid[parts[1]] = int(parts[0])
+        except Exception:
+            pass
+        memory = {}
+        try:
+            r = subprocess.run(["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,used_gpu_memory",
+                                "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=4)
+            for line in r.stdout.splitlines():
+                parts = [x.strip() for x in line.split(",")]
+                if len(parts) >= 3:
+                    try: memory[(int(parts[1]), gpu_uuid.get(parts[0], parts[0]))] = float(parts[2])
+                    except (ValueError, TypeError): pass
+        except Exception:
+            pass
+        util = {}
+        try:
+            r = subprocess.run(["nvidia-smi", "pmon", "-c", "1", "-s", "u"],
+                               capture_output=True, text=True, timeout=5)
+            for line in r.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit():
+                    try: util[(int(parts[1]), int(parts[0]))] = float(parts[3])
+                    except ValueError: pass
+        except Exception:
+            pass
+        result = []
+        for item in running:
+            proxy = item.get("proxy") or ""
+            port = str(proxy.rsplit(":", 1)[-1]).split("/", 1)[0]
+            pid = pid_by_port.get(port)
+            uptime_s = None
+            if pid:
+                try:
+                    et = subprocess.run(["ps", "-o", "etimes=", "-p", str(pid)],
+                                        capture_output=True, text=True, timeout=2)
+                    uptime_s = int(et.stdout.strip())
+                except (ValueError, TypeError, OSError):
+                    pass
+            gpus = []
+            if pid:
+                ids = sorted({g for p, g in memory if p == pid and isinstance(g, int)} |
+                             {g for p, g in util if p == pid})
+                for gid in ids:
+                    gpus.append({"id": gid, "vram_mb": memory.get((pid, gid), 0),
+                                 "util_pct": util.get((pid, gid), 0)})
+            result.append({"id": item.get("model"), "name": item.get("name") or item.get("model"),
+                           "pid": pid, "port": int(port) if port.isdigit() else None,
+                           "uptime_s": uptime_s, "state": item.get("state"),
+                           "gpus": gpus,
+                           "vram_mb": sum(g["vram_mb"] for g in gpus),
+                           "util_pct": max((g["util_pct"] for g in gpus), default=0)})
+        self._json({"models": result})
+
+    def _system_info(self):
+        model = "unknown CPU"
+        sources = []
+        if LLAMA_SWAP_CONTAINER:
+            sources.extend([
+                ["docker", "exec", LLAMA_SWAP_CONTAINER, "cat", "/proc/cpuinfo"],
+                ["podman", "exec", LLAMA_SWAP_CONTAINER, "cat", "/proc/cpuinfo"],
+            ])
+        sources.append(["cat", "/proc/cpuinfo"])
+        for command in sources:
+            try:
+                r = subprocess.run(command, capture_output=True, text=True, timeout=3)
+                for line in r.stdout.splitlines():
+                    if line.lower().startswith("model name") and ":" in line:
+                        model = line.split(":", 1)[1].strip()
+                        break
+                if model != "unknown CPU":
+                    break
+            except Exception:
+                pass
+        if model == "unknown CPU":
+            try:
+                r = subprocess.run(["lscpu", "-J"], capture_output=True, text=True, timeout=3)
+                data = json.loads(r.stdout)
+                for row in data.get("lscpu", []):
+                    if row.get("field", "").strip().lower() in ("model name:", "model:"):
+                        model = row.get("data") or model
+                        break
+            except Exception:
+                pass
+        self._json({"cpu_model": model})
+
+    def _host_metrics(self):
+        """Server-side host metrics, never read from the browser."""
+        temps = []
+        for path in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
+            try:
+                value = float(open(path).read().strip()) / 1000.0
+                if 0 < value < 150:
+                    temps.append(value)
+            except (OSError, ValueError):
+                pass
+        disk_data = self._model_partition()
+        rx = tx = 0
+        try:
+            for line in open("/proc/net/dev"):
+                if ":" not in line:
+                    continue
+                values = line.split(":", 1)[1].split()
+                if len(values) >= 9:
+                    rx += int(values[0])
+                    tx += int(values[8])
+        except (OSError, ValueError):
+            pass
+        self._json({"cpu_temp_c": max(temps) if temps else None,
+                    "disk": disk_data, "network": {"rx_bytes": rx, "tx_bytes": tx}})
+
+    def _gpu_limits(self):
+        limits = {}
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=index,power.limit",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=4)
+            for line in r.stdout.splitlines():
+                parts = [x.strip() for x in line.split(",")]
+                if len(parts) >= 2 and parts[1] not in ("[N/A]", "N/A"):
+                    try:
+                        limits[str(int(parts[0]))] = float(parts[1])
+                    except ValueError:
+                        pass
+        except (OSError, subprocess.SubprocessError):
+            pass
+        self._json({"limits": limits})
+
+    def _model_partition(self):
+        """Find the storage partition containing the configured model files."""
+        try:
+            with urllib.request.urlopen(UPSTREAM + "/running", timeout=2) as r:
+                running = json.load(r).get("running") or []
+        except Exception:
+            running = []
+        paths = []
+        for item in running:
+            cmd = item.get("cmd") or ""
+            paths += re.findall(r"(?:--model|--mmproj|--config)\s+(\S+)", cmd)
+        target = None
+        for path in paths:
+            if "/models/" in path:
+                target = path.split("/models/", 1)[0] or "/"
+                break
+        if not target and paths:
+            target = os.path.dirname(paths[0])
+        if not target:
+            return {}
+
+        # If the helper runs beside llama-swap in a container, query the
+        # container's mount namespace. Otherwise use the local path only when
+        # it actually exists; never report the monitor client's root disk.
+        commands = []
+        if LLAMA_SWAP_CONTAINER:
+            commands += [
+                ["docker", "exec", LLAMA_SWAP_CONTAINER, "df", "-Pk", target],
+                ["podman", "exec", LLAMA_SWAP_CONTAINER, "df", "-Pk", target],
+            ]
+        if os.path.exists(target):
+            commands.append(["df", "-Pk", target])
+        for command in commands:
+            try:
+                p = subprocess.run(command, capture_output=True, text=True, timeout=4)
+                lines = [x.split() for x in p.stdout.splitlines() if x.strip()]
+                if p.returncode == 0 and len(lines) >= 2 and len(lines[-1]) >= 5:
+                    total, used, free = (int(lines[-1][i]) * 1024 for i in (1, 2, 3))
+                    mount_path = " ".join(lines[-1][5:]) if len(lines[-1]) >= 6 else target
+                    return {"path": mount_path, "target": target,
+                            "used_bytes": used, "total_bytes": total,
+                            "free_bytes": free, "source": " ".join(command[:2])}
+            except (OSError, ValueError, IndexError):
+                pass
+        return {"path": target, "available": False}
+
     def do_GET(self):
         route = self.path.split("?", 1)[0]
         if route == "/_swebench":
             self._swebench()
+            return
+        if route == "/_model_resources":
+            self._model_resources()
+            return
+        if route == "/_system_info":
+            self._system_info()
+            return
+        if route == "/_host_metrics":
+            self._host_metrics()
+            return
+        if route == "/_gpu_limits":
+            self._gpu_limits()
             return
         if route == "/swebench" or route == "/swebench.html":
             self._serve_file("swebench.html")
             return
         if route == "/_slots":
             # live token counts, read straight from the loaded llama-server (never swaps a model)
-            base = self._current_upstream()
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            model_id = query.get("model", [None])[0]
+            base = self._current_upstream(model_id)
             if not base:
                 self.send_error(503, "no model loaded")
                 return

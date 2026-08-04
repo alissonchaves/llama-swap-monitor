@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>llama-swap · rig monitor</title>
+<title>llama-swap Monitor</title>
 <meta name="description" content="Real-time GPU and system monitoring dashboard for llama-swap inference rigs.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2314171c'/><text x='16' y='23' text-anchor='middle' font-size='18' font-weight='700' font-family='monospace' fill='%2335d07f'>λ</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,13 +11,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0b0d10; --panel:#14171c; --panel-2:#191d23; --inner:#0f1216;
-    --border:#242933; --border-2:#2d333d;
-    --text:#e6e9ee; --muted:#7d8794; --muted-2:#586170;
-    --accent:#35d07f;            /* serving / healthy green */
-    --good:#35c46a; --warn:#f2b134; --crit:#e5544b;
-    --g0:#3987e5; --g1:#2bb98a; --g2:#e0a72e;   /* GPU line series (validated set) */
-    --cpu:#9b8cff;               /* CPU utilization line (distinct from GPU/decode) */
+    --bg:#070a0f; --panel:#151d28; --panel-2:#202c3b; --inner:#0b1119;
+    --border:#304052; --border-2:#52657a;
+    --text:#f8fafc; --muted:#b5c0ce; --muted-2:#8291a3;
+    --accent:#45e08b;            /* serving / healthy green */
+    --good:#4ade80; --warn:#fbbf24; --crit:#fb7185;
+    --g0:#60a5fa; --g1:#34d399; --g2:#facc15;   /* GPU line series */
+    --cpu:#b09cff;               /* CPU utilization line */
     /* theme-specific surfaces (overridden in light mode) */
     --tip-bg:#0a0c0f; --scroll:#2a3038; --track-border:rgba(255,255,255,.03);
     --log-text:#b7c0cc; --log-warn:#f0c674; --log-error:#ef9a9a;
@@ -32,13 +32,13 @@
   }
   /* muted light mode — soft slate, off-white panels (deliberately NOT pure white) */
   :root[data-theme="light"]{
-    --bg:#e5e7ec; --panel:#f2f3f6; --panel-2:#eaecf0; --inner:#dcdfe5;
-    --border:#d0d4db; --border-2:#bfc4ce;
-    --text:#1b2129; --muted:#5a6472; --muted-2:#8b95a3;
-    --accent:#12a05f;            /* darkened green for contrast on light */
-    --good:#199e57; --warn:#b3810a; --crit:#d23a30;
-    --g0:#2f6fd0; --g1:#158a66; --g2:#b3821a;
-    --cpu:#6d5bd0;
+    --bg:#f3f5f7; --panel:#ffffff; --panel-2:#f8fafb; --inner:#eceff2;
+    --border:#c4cbd3; --border-2:#98a4b1;
+    --text:#122235; --muted:#40566d; --muted-2:#607991;
+    --accent:#087f4f;            /* accessible green for light surfaces */
+    --good:#168447; --warn:#a16207; --crit:#c6284b;
+    --g0:#2563c7; --g1:#087f63; --g2:#a16207;
+    --cpu:#6548c7;
     --tip-bg:#f8f9fb; --scroll:#c3c8d1; --track-border:rgba(0,0,0,.05);
     --log-text:#38414d; --log-warn:#8a6200; --log-error:#c0392b;
     --shadow-sm:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
@@ -56,7 +56,7 @@
   /* Smaller screens: log box gets a fixed 600px height, the whole PAGE scrolls,
      and the log box scrolls separately inside that 600px. Triggered when the
      viewport is short OR narrow enough to hit the responsive reflow (max-width
-     matches the .cards single-column breakpoint below). */
+     matches the resource-deck single-column breakpoint below). */
   @media (max-height:1000px), (max-width:1100px){
     body{height:auto;min-height:100vh;overflow-y:auto}
     .logpanel{flex:none;min-height:0;height:600px}
@@ -112,17 +112,19 @@
 
   /* grid helpers */
   .grid{display:grid;gap:12px}
-  .tiles{grid-template-columns:repeat(5,1fr);margin-bottom:12px}
-  .cards{grid-template-columns:repeat(4,1fr);margin-bottom:12px}
+  .tiles{grid-template-columns:repeat(4,1fr);margin-bottom:12px}
+  .resource-deck{grid-template-columns:repeat(4,1fr);margin-bottom:12px}
+  .charts-deck{grid-template-columns:repeat(3,1fr);margin-bottom:12px}
   .contents{display:contents}   /* children become grid items of the parent grid */
-  @media(max-width:1100px){.tiles{grid-template-columns:repeat(3,1fr)}.cards{grid-template-columns:repeat(2,1fr)}}
-  @media(max-width:640px){.tiles{grid-template-columns:1fr 1fr}.cards{grid-template-columns:1fr}}
+  @media(max-width:1100px){.tiles{grid-template-columns:repeat(2,1fr)}.resource-deck{grid-template-columns:repeat(2,1fr)}.charts-deck{grid-template-columns:1fr 1fr}}
+  @media(max-width:640px){.tiles{grid-template-columns:1fr 1fr}.resource-deck,.charts-deck{grid-template-columns:1fr}}
 
   .panel{
     background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;
     transition:box-shadow .25s ease,border-color .25s ease;
     box-shadow:var(--shadow-sm);
   }
+  .panel:hover{border-color:var(--border-2)}
   .panel:hover{
     box-shadow:var(--shadow-md);
     border-color:var(--border-2);
@@ -136,6 +138,25 @@
   .ctxnums b{color:var(--text);font-weight:600}
   .ctxnums .sep2{color:var(--muted-2);margin:0 8px}
   .ctxtrack{height:9px}
+  .ctxrows{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:10px}
+  .ctxitem .ctxrow{margin-bottom:5px}
+  .ctxitem{cursor:pointer;background:var(--panel-2);border:1px solid var(--border);border-left:3px solid var(--model-color,var(--accent));border-radius:9px;padding:11px 11px 10px;margin:0;transition:background .15s,border-color .15s,box-shadow .15s}
+  .ctxitem:hover{background:var(--panel-2);border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 18%,transparent)}
+  .ctxitem.selected{background:var(--panel-2);border:1px solid rgba(53,208,127,.45);border-radius:8px;padding:8px 9px;margin:-1px 0}
+  .ctxitem.selected .ctxname{color:var(--accent)}
+  .ctxitem.selected:hover{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+  :root[data-theme="light"] .ctxitem.selected{background:#e8f8ef;border-color:#159957}
+  .ctxitem .ctxname{color:var(--model-color,var(--text));font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .ctxitem .ctxnums{font-size:11px}
+  .model-context-panel{margin-bottom:12px}
+  .model-context-grid{display:block}
+  .model-serving-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .model-summary{font-size:17px;line-height:1.2;font-weight:600;margin-top:7px;margin-bottom:12px}
+  .model-serving-meta{color:var(--muted);font-size:10px;margin-top:-7px;margin-bottom:10px}
+  .ctxstate{flex:none;margin-left:8px}
+  .model-resource{display:flex;gap:14px;margin-top:5px;color:var(--muted);font-size:10px}
+  .model-resource b{color:var(--text);font-weight:600}
+  .model-resource{flex-wrap:wrap;line-height:1.35}
 
   /* stat tiles */
   .tile .lbl{margin-bottom:9px}
@@ -144,6 +165,77 @@
   .tile .val.accent{color:var(--accent)}
   .tile .sub{margin-top:7px;font-size:11px;color:var(--muted)}
   .tile .sub .sep{color:var(--muted-2);margin:0 6px}
+  .model-list{display:flex;flex-direction:column;gap:3px;margin-top:8px;max-height:72px;overflow:auto}
+  .model-row{display:flex;align-items:center;gap:7px;min-width:0;font-size:10px;line-height:1.25}
+  .model-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);flex:1;min-width:0}
+  .model-state{flex:none;color:var(--muted-2);font-size:9px;text-transform:uppercase;letter-spacing:.05em}
+  .model-state.ready{color:var(--accent)}
+  .model-state.loading{color:var(--warn)}
+
+  /* llama-swap-style request activity */
+  .activity{display:none;order:6;margin-bottom:12px;padding:0;overflow:hidden}
+  body.activity-mode .activity{display:block}
+  body.activity-mode{height:auto;min-height:100vh;overflow-y:auto}
+  .logpanel{order:7}
+  body.activity-mode .logpanel{display:none}
+  .activity-head{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border)}
+  .activity-head .spacer{flex:1}
+  .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
+  .activity-chart{min-width:0}
+  .activity-chart .chart-title{color:var(--accent);font-family:var(--sans);font-size:12px;font-weight:700;margin-bottom:9px}
+  .hist{height:86px;display:flex;align-items:flex-end;gap:2px;border-left:1px solid var(--border-2);border-bottom:1px solid var(--border-2);padding:0 3px}
+  .hist-wrap{display:grid;grid-template-columns:28px 1fr;align-items:stretch;gap:6px}
+  .hist-y{height:86px;display:flex;flex-direction:column;justify-content:space-between;text-align:right;color:var(--muted-2);font-size:9px;line-height:1}
+  .hist i{display:block;flex:1;min-width:2px;background:var(--g0);opacity:.85}
+  .hist.gen i{background:var(--g0)}
+  .hist-labels{display:flex;justify-content:space-between;color:var(--muted-2);font-size:10px;margin-top:5px}
+  .activity-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:0 14px 14px}
+  .activity-kpis{grid-template-columns:repeat(4,1fr);padding:0 14px 14px}
+  .activity-stat .k{color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+  .activity-stat .v{font-family:var(--sans);font-size:15px;font-weight:600;margin-top:4px}
+  .activity-section{border-top:1px solid var(--border);padding:12px 14px 14px}
+  .activity-section h3{font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 9px}
+  .activity-table-wrap{overflow:auto}
+  .activity-table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:11px}
+  .activity-table th{text-align:left;color:var(--text);background:var(--panel-2);font-weight:700;padding:8px 10px;border-bottom:2px solid var(--border-2)}
+  .activity-table td{padding:8px 10px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums}
+  .activity-table tbody tr:hover td{background:var(--panel-2)}
+  .activity-table tr:last-child td{border-bottom:0}
+  .activity-table .model{font-weight:600;color:var(--text)}
+  .activity-model-link{border:0;background:none;color:var(--accent);font:inherit;font-weight:600;cursor:pointer;padding:0;text-align:left}
+  .activity-model-link:hover{text-decoration:underline}
+  .activity-back{display:none}
+  .activity-table .muted{color:var(--muted)}
+  .activity-table .status-ok{color:var(--accent)}
+  .activity-table .status-err{color:var(--crit)}
+  .activity-empty{color:var(--muted-2);font-size:11px;padding:10px 0}
+  .activity-pager{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:10px;color:var(--muted);font-size:10px}
+  .activity-pages{display:flex;align-items:center;gap:4px;margin:0 5px}
+  .activity-pager .pagebtn{min-width:36px;height:36px;padding:4px 9px;font-size:14px;font-weight:600}
+  .activity-pager .pagebtn.current{color:var(--text);background:var(--panel-2);border-color:var(--panel-2)}
+  body.model-filter-active .activity-chart,
+  body.model-filter-active .activity-stat,
+  body.model-filter-active .activity-section,
+  body.model-filter-active .charts-deck .model-specific-chart,
+  body.model-filter-active .tiles .tile{
+    background:var(--panel-2);
+    border:1px solid var(--accent);
+    border-radius:var(--radius);
+    box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 24%,transparent),0 8px 20px color-mix(in srgb,var(--accent) 12%,transparent)
+  }
+  body.model-filter-active .activity-chart{padding:10px 10px 8px}
+  body.model-filter-active .activity-stat{padding:10px}
+  body.model-filter-active .activity-chart:hover,
+  body.model-filter-active .activity-stat:hover,
+  body.model-filter-active .charts-deck .model-specific-chart:hover,
+  body.model-filter-active .tiles .tile:hover{background:var(--panel-2);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 34%,transparent),0 10px 24px color-mix(in srgb,var(--accent) 18%,transparent)}
+  :root[data-theme="light"] body.model-filter-active .activity-chart,
+  :root[data-theme="light"] body.model-filter-active .activity-stat,
+  :root[data-theme="light"] body.model-filter-active .activity-section,
+  :root[data-theme="light"] body.model-filter-active .charts-deck .model-specific-chart,
+  :root[data-theme="light"] body.model-filter-active .tiles .tile{background:#e8f8ef;border-color:#159957}
+  .activity-pager .btn:disabled{opacity:.35;cursor:default}
+  @media(max-width:700px){.activity-grid{grid-template-columns:1fr}.activity-stats{grid-template-columns:1fr 1fr}}
 
   /* cost breakdown popover (inference vs idle) — appears on hover over the cost line */
   .costline{position:relative}
@@ -282,7 +374,7 @@
 <a href="#main-content" class="skip-link">Skip to content</a>
 
 <header>
-  <div class="title">llama&#8203;-swap <b>rig monitor</b></div>
+  <div class="title">llama&#8203;-swap <b>Monitor</b></div>
   <div class="spacer"></div>
   <button class="pill themebtn" id="themeBtn" title="Toggle light / dark" aria-label="Toggle light / dark mode"><span class="ico" id="themeIco">☾</span></button>
   <div class="pill gen" id="gen"><span class="gdot"></span>generating</div>
@@ -290,13 +382,32 @@
   <div class="pill" id="conn"><span class="dot"></span><span id="connT">connecting…</span></div>
 </header>
 
-<!-- stat tiles -->
-<div class="grid tiles">
-  <div class="panel tile">
-    <div class="lbl">Model serving</div>
-    <div class="val" id="tModel" style="font-size:17px;line-height:1.2">—</div>
-    <div class="sub"><span id="tModelBadge" class="badge stopped">idle</span><span class="sep">·</span><span id="tCtx">— ctx</span></div>
+<!-- model + context overview -->
+  <div class="panel model-context-panel">
+    <div class="model-context-grid">
+      <div class="model-serving-head"><span class="lbl">Model serving</span></div>
+      <div class="model-summary" id="tModel">—</div>
+      <div class="model-serving-meta" id="tModelSub">swaps 0 · no swap recorded</div>
+      <div class="ctxrows" id="ctxRows"><div class="empty">waiting for model context…</div></div>
+    </div>
   </div>
+
+<!-- server resources: GPU, VRAM, CPU and RAM -->
+<div class="grid resource-deck" id="deck">
+  <!-- #cards is display:contents so the JS-rendered device cards become grid items of #deck -->
+  <div id="cards" class="contents"></div>
+  <div class="panel card" id="hostInfo">
+    <div class="chead"><div><div class="cname">Server telemetry</div><div class="csub">host-side metrics</div></div></div>
+    <div class="statline">
+      <div class="s"><div class="k">CPU temp</div><div class="n" id="hostCpuTemp">—</div></div>
+      <div class="s"><div class="k" id="hostDiskLabel">Partition</div><div class="n" id="hostDisk">—</div></div>
+      <div class="s"><div class="k">Network</div><div class="n" id="hostNetwork">—</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- request summary -->
+<div class="grid tiles">
   <div class="panel tile">
     <div class="lbl">Prompt throughput</div>
     <div class="val accent mono-num" id="tPrompt">—<small>tok/s</small></div>
@@ -321,20 +432,8 @@
   </div>
 </div>
 
-<!-- context window usage -->
-<div class="panel ctxpanel">
-  <div class="ctxrow">
-    <span class="lbl">Context window <span id="ctxModel" class="ctxmodel"></span></span>
-    <span class="ctxnums"><span id="ctxUsed">—</span> / <span id="ctxMax">—</span> used<span class="sep2">·</span><b id="ctxFree">—</b> free</span>
-  </div>
-  <div class="track ctxtrack"><div class="fill" id="ctxFill" style="width:0%"></div></div>
-</div>
-
-<!-- device cards + charts share one 4-per-row grid -->
-<div id="main-content"></div>
-<div class="grid cards" id="deck">
-  <!-- #cards is display:contents so the JS-rendered device cards become grid items of #deck -->
-  <div id="cards" class="contents"></div>
+<!-- time-series charts -->
+<div class="grid charts-deck">
   <div class="panel">
     <div class="chart-head">
       <div class="lbl">CPU utilization</div>
@@ -349,7 +448,7 @@
     </div>
     <div class="cwrap"><canvas id="cUtil"></canvas><div class="tip" id="tipUtil"></div></div>
   </div>
-  <div class="panel">
+  <div class="panel model-specific-chart">
     <div class="chart-head">
       <div class="lbl">Decode throughput</div>
       <div class="r" id="decMax">max —</div>
@@ -358,10 +457,30 @@
   </div>
 </div>
 
+<!-- request activity: mirrors the useful operational view from llama-swap's UI -->
+<section class="panel activity" id="activityPanel">
+  <div class="activity-head"><div class="tabs view-tabs"><button class="tab active" data-view="activity">activity</button><button class="tab" data-view="logs">logs</button></div><button class="btn activity-back" id="activityBack">← all models</button><span class="lbl" id="activityScope">Request activity</span><span class="muted" id="activityModel"></span><span class="spacer"></span><span class="lbl" id="activityUpdated">—</span></div>
+  <div class="activity-grid">
+    <div class="activity-chart"><div class="chart-title">Prompt processing</div><div class="hist-wrap"><div class="hist-y"><span id="promptYMax">—</span><span id="promptYMid">—</span><span>0</span></div><div class="hist" id="promptHist"></div></div><div class="hist-labels"><span id="promptMin">—</span><span id="promptMax">—</span></div></div>
+    <div class="activity-chart"><div class="chart-title">Token generation</div><div class="hist-wrap"><div class="hist-y"><span id="genYMax">—</span><span id="genYMid">—</span><span>0</span></div><div class="hist gen" id="genHist"></div></div><div class="hist-labels"><span id="genMin">—</span><span id="genMax">—</span></div></div>
+  </div>
+  <div class="grid tiles activity-kpis">
+    <div class="panel tile"><div class="lbl">Completed requests</div><div class="val mono-num" id="tRequests">—</div><div class="sub" id="tRequestsSub">all models</div></div>
+    <div class="panel tile"><div class="lbl">Error rate</div><div class="val mono-num" id="tErrors">—</div><div class="sub" id="tErrorsSub">completed requests</div></div>
+    <div class="panel tile"><div class="lbl">Average latency</div><div class="val mono-num" id="tLatency">—<small>s</small></div><div class="sub">completed requests</div></div>
+    <div class="panel tile"><div class="lbl">Cache coverage</div><div class="val mono-num" id="tCacheRate">—<small>%</small></div><div class="sub" id="tCacheRateSub">cached prompt tokens</div></div>
+  </div>
+  <div class="activity-section"><h3>In-flight requests <span id="activityInflightCount">0 active</span></h3><div class="activity-table-wrap"><table class="activity-table"><thead><tr><th>ID</th><th>State</th><th>Elapsed</th><th>Model</th><th>Request</th><th>User Agent</th><th>User / origin</th></tr></thead><tbody id="inflightRows"></tbody></table><div class="activity-empty" id="inflightEmpty">No active requests</div></div></div>
+  <div class="activity-section"><h3>Completed requests</h3><div class="activity-table-wrap"><table class="activity-table"><thead><tr><th>ID</th><th>Time</th><th>Model</th><th>Status</th><th>Cached</th><th>Prompt</th><th>Generated</th><th>Prompt speed</th><th>Gen speed</th><th>Duration</th><th>User / origin</th></tr></thead><tbody id="activityRows"></tbody></table><div class="activity-empty" id="activityEmpty">Waiting for request metrics…</div></div><div class="activity-pager"><button class="btn pagebtn" id="activityFirst" title="First page">«</button><button class="btn pagebtn" id="activityPrev" title="Previous page">‹</button><div class="activity-pages" id="activityPages"></div><button class="btn pagebtn" id="activityNext" title="Next page">›</button><button class="btn pagebtn" id="activityLast" title="Last page">»</button></div></div>
+</section>
+
+<div id="main-content"></div>
+
 <!-- log viewer -->
 <div class="panel logpanel">
   <div class="logbar">
     <span class="lbl">Logs</span>
+    <div class="tabs view-tabs" id="logViewTabs"><button class="tab active" data-view="logs">logs</button><button class="tab" data-view="activity">activity</button></div>
     <div class="tabs" id="logTabs">
       <button class="tab active" data-src="all">all</button>
       <button class="tab" data-src="upstream">upstream</button>
@@ -395,7 +514,6 @@ const PERF_MS = 5000;          // matches server sample interval
 const HIST = 120;              // ~10 min of 5s samples
 const DEC_HIST = 80;           // decode tps points retained
 const LOG_CAP = 2000;          // max retained log lines
-const POWER_MAX = 151;         // GTX1070 TDP (W) — bar scale
 const ENERGY_MS = 5000;        // /_energy poll cadence (server samples every 10s)
 let GPU_COLORS = ["--g0","--g1","--g2"].map(v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim());
 
@@ -435,6 +553,7 @@ const TPS_SANE = 5000;     // llama-swap emits 1e6 t/s sentinel for 1-token repl
 const S = {
   seeded: false,          // util history backfilled from perf buffer
   models: [],
+  loadedModels: [],          // every model currently resident in llama-swap
   running: null,          // {id,state}
   ctxById: {},            // id -> context_length
   lastMetric: null,       // most recent request record
@@ -443,10 +562,18 @@ const S = {
   lastDecodeRate: 0,      // last real decode t/s (fallback while busy)
   inflight: 0,            // active requests (idle when 0)
   slot: null,             // live {proc,prompt,decoded,nctx} from llama-server /slots
+  slotByModel: {},        // live slot state grouped by loaded model
+  slotByRequest: {},      // live slot state when llama-server exposes request id
+  contextSlots: {},       // per-model context occupancy from each loaded llama-server
+  modelResources: {},     // per-model VRAM/utilization from nvidia-smi process data
+  hostMetrics: null,      // CPU temperature, disk and network from the monitor host
+  hostMetricsAt: 0,
+  cpuModel: "CPU",
   slotRate: 0,            // live decode t/s from n_decoded deltas
   _slotPrev: null,        // {decoded,t} for the live-rate calc
   slotTimer: null,
   gpus: {},               // id -> latest gpu sample
+  gpuLimits: {},          // id -> real power limit from nvidia-smi
   gpuOrder: [],
   energy: null,           // last /_energy snapshot from the server-side power sampler
   sys: null,
@@ -455,6 +582,19 @@ const S = {
   cpuHist: [],            // avg CPU util % history (aligned to HIST cadence)
   decHist: [],            // [{t, tps}]
   logs: [],               // {src, lvl, ts, text}
+  activity: [],           // completed request metrics from llama-swap
+  activityHistory: [],    // full history used for per-model summaries
+  inflightRequests: [],   // detailed live request rows from /api/events
+  captureHeaders: {},     // request headers loaded from completed request captures
+  captureLoading: new Set(),
+  activityPage: 1,
+  activityTotalPages: 1,
+  activityModel: "",
+  activitySummarySeq: 0,
+  activitySummaryAt: 0,
+  swapCount: 0,
+  lastSwapAt: 0,
+  lastSwapModel: "",
   logSrc: "all",
   wrap: true,
   autoscroll: true,
@@ -468,6 +608,8 @@ const esc = s => { const d=document.createElement("div"); d.textContent=s; retur
 const fmt = n => n==null?"—":n.toLocaleString("en-US");
 const fmt1 = n => n==null?"—":(Math.round(n*10)/10).toLocaleString("en-US",{minimumFractionDigits:1,maximumFractionDigits:1});
 function shortTokens(n){ if(n==null)return "—"; if(n<1000)return ""+n; if(n<1e6)return (n/1e3).toFixed(n<1e4?1:0)+"k"; return (n/1e6).toFixed(2)+"M"; }
+function formatUptime(sec){ sec=Math.max(0,Math.round(Number(sec)||0)); const d=Math.floor(sec/86400); sec%=86400; const h=Math.floor(sec/3600); sec%=3600; const m=Math.floor(sec/60); return d?d+"d "+h+"h":h?h+"h "+m+"m":m?m+"m":sec+"s"; }
+function formatBytes(n){ if(n==null)return "—"; n=Number(n); if(n<1024)return Math.round(n)+" B"; if(n<1048576)return (n/1024).toFixed(1)+" KB"; if(n<1073741824)return (n/1048576).toFixed(1)+" MB"; return (n/1073741824).toFixed(1)+" GB"; }
 function kTok(n){ if(n==null)return "—"; return n>=1024 ? (n/1024).toFixed(n>=10240?0:1)+"K" : Math.round(n)+""; }  // context-window scale (÷1024)
 function loadColor(pct,warn,crit){ return pct>=crit?cssv("--crit"):pct>=warn?cssv("--warn"):cssv("--good"); }
 function cpuAvgOf(s){ const c=(s&&s.cpu_util_per_core)||[]; return c.length? c.reduce((a,b)=>a+b,0)/c.length : 0; }
@@ -493,17 +635,344 @@ function setCostTile(el, costStr, kwhStr, rateStr){
   el.appendChild(span);
 }
 
+/* ---------- request activity ---------- */
+const headerValue = (headers, name) => {
+  if(!headers) return "—";
+  const key=Object.keys(headers).find(k=>k.toLowerCase()===name.toLowerCase());
+  return key && headers[key] ? String(headers[key]) : "—";
+};
+const firstHeaderValue = (headers, names) => {
+  for(const name of names){
+    const value=headerValue(headers,name);
+    if(value!=="—") return value;
+  }
+  return "—";
+};
+function requestIdentity(headers, remoteIp){
+  const entries=Object.entries(headers||{})
+    .map(([key,value])=>({key:key.toLowerCase().replace(/[-_]/g," "),value:String(value||"").trim()}))
+    .filter(x=>x.value&&x.value!=="—");
+  const isIp=v=>/^(?:\d{1,3}\.){3}\d{1,3}$|^[0-9a-f:]{3,}$/i.test(v);
+  const isEmail=v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
+  const username=entries.find(x=>
+    /(username|user name|login|nickname|handle|account|remote user|authenticated user|\buser\b)/i.test(x.key) &&
+    !/(id|email|name|group|role|permission|scope|team|claim|member)/i.test(x.key) &&
+    !isEmail(x.value) && !isIp(x.value) && !/\s/.test(x.value)
+  );
+  if(username)return username.value;
+  const email=entries.find(x=>isEmail(x.value)||/\bemail\b/i.test(x.key));
+  if(email)return email.value;
+  const fullName=entries.find(x=>
+    /(full name|display name|user name|^name$)/i.test(x.key) &&
+    !/(group|role|permission|scope|team|claim|member)/i.test(x.key) &&
+    !isEmail(x.value) && !isIp(x.value)
+  );
+  if(fullName)return fullName.value;
+  const forwarded=firstHeaderValue(headers,["X-Forwarded-For","X-Real-IP","Forwarded"]);
+  const ipMatch=forwarded.match(/(?:\d{1,3}\.){3}\d{1,3}|[0-9a-f:]{3,}/i);
+  return (ipMatch&&ipMatch[0])||remoteIp||"—";
+}
+function modelParallel(cmd){
+  const m=/(?:--parallel|-np|LLAMA_ARG_N_PARALLEL=)\s*(\d+)/.exec(cmd||"");
+  return m?Math.max(1,parseInt(m[1],10)):null;
+}
+const activityNum = (n, fallback="—") => n==null || n==="" ? fallback : Number(n).toLocaleString("en-US");
+const activityRate = n => n>0 ? Number(n).toFixed(2)+" tok/s" : "0.00 tok/s";
+const activityDuration = ms => ms==null ? "—" : (Number(ms)/1000).toFixed(2)+"s";
+const activityElapsed = ts => {
+  const t=Date.parse(ts||""); if(!t) return "—";
+  const s=Math.max(0,(Date.now()-t)/1000); return s<60?s.toFixed(1)+"s":(s/60).toFixed(1)+"m";
+};
+function renderHistogram(id, stats, minId, maxId, yMaxId, yMidId){
+  const box=$(id); box.textContent="";
+  const bins=stats&&Array.isArray(stats.bins)?stats.bins:[];
+  const max=Math.max(1,...bins);
+  $(yMaxId).textContent=bins.length?Math.max(...bins):"—";
+  $(yMidId).textContent=bins.length?Math.ceil(Math.max(...bins)/2):"—";
+  bins.forEach(n=>{const bar=document.createElement("i");bar.style.height=(Math.max(2,n/max*100)).toFixed(1)+"%";bar.title=String(n);box.appendChild(bar);});
+  $(minId).textContent=stats&&stats.min!=null?Number(stats.min).toFixed(1):"—";
+  $(maxId).textContent=stats&&stats.max!=null?Number(stats.max).toFixed(1):"—";
+}
+function renderActivityStats(stats){
+  if(!stats) return;
+  renderHistogram("promptHist",stats.prompt_histogram,"promptMin","promptMax","promptYMax","promptYMid");
+  renderHistogram("genHist",stats.generation_histogram||stats.gen_histogram,"genMin","genMax","genYMax","genYMid");
+}
+function renderActivitySummary(stats, rows){
+  const list=Array.isArray(rows)?rows:[];
+  const total=Number(stats&&stats.total_requests||0);
+  const errors=list.filter(m=>Number(m.resp_status_code||0)>=400||m.error_msg).length;
+  const durations=list.map(m=>Number(m.duration_ms)).filter(Number.isFinite);
+  const cache=list.reduce((n,m)=>n+Number(m.tokens&&m.tokens.cache_tokens||0),0);
+  const input=list.reduce((n,m)=>n+Number(m.tokens&&m.tokens.input_tokens||0),0);
+  $("tRequests").textContent=activityNum(total);
+  $("tRequestsSub").textContent=S.activityModel?S.activityModel:"all models";
+  $("tErrors").textContent=total?((errors/Math.max(1,list.length))*100).toFixed(1)+"%":"—";
+  $("tErrorsSub").textContent=errors+" errors in loaded history";
+  $("tLatency").firstChild.textContent=durations.length?(durations.reduce((a,b)=>a+b,0)/durations.length/1000).toFixed(2):"—";
+  $("tCacheRate").firstChild.textContent=(cache+input)>0?(cache/(cache+input)*100).toFixed(1):"—";
+  $("tCacheRateSub").textContent=cache?activityNum(cache)+" cached tokens":"no cached tokens";
+}
+function percentile(values, p){
+  const a=values.filter(Number.isFinite).sort((x,y)=>x-y);
+  if(!a.length)return null;
+  return a[Math.min(a.length-1,Math.ceil(a.length*p)-1)];
+}
+function modelActivitySummary(model){
+  const rows=(S.activityHistory||[]).filter(x=>x.model===model);
+  const speeds=rows.map(x=>Number(x.tokens&&x.tokens.tokens_per_second)).filter(x=>x>0&&x<=TPS_SANE);
+  const prompt=rows.reduce((n,x)=>n+Number(x.tokens&&x.tokens.input_tokens||0),0);
+  const generated=rows.reduce((n,x)=>n+Number(x.tokens&&x.tokens.output_tokens||0),0);
+  const cached=rows.reduce((n,x)=>n+Number(x.tokens&&x.tokens.cache_tokens||0),0);
+  const errors=rows.filter(x=>Number(x.resp_status_code||0)>=400||x.error_msg).length;
+  return {requests:rows.length,prompt,generated,cached,errors,
+    avg:speeds.length?speeds.reduce((a,b)=>a+b,0)/speeds.length:null,
+    p95:percentile(speeds,.95)};
+}
+function renderInflight(){
+  const rows=$("inflightRows"); rows.textContent="";
+  const list=(S.inflightRequests||[]).filter(q=>!S.activityModel||q.model===S.activityModel);
+  let executing=0, waiting=0;
+  const seen={};
+  const requestState=(q,index)=>{
+    const rank=seen[q.model]||0; seen[q.model]=rank+1;
+    const byId=S.slotByRequest[String(q.id)]||null;
+    if(byId)return byId.waiting?"waiting":"executing";
+    const model=(S.loadedModels||[]).find(m=>m.id===q.model);
+    if(model&&/loading|starting|stopping|unloading/i.test(model.state||""))return "waiting";
+    if(model&&model.parallel&&rank>=model.parallel)return "waiting";
+    // llama-swap does not expose its internal queue state. A ready model with
+    // an in-flight request is therefore reported as executing, unless the
+    // upstream slot explicitly identifies the request as waiting.
+    return "executing";
+  };
+  const states=list.map((q,i)=>requestState(q,i));
+  states.forEach(state=>state==="waiting"?waiting++:executing++);
+  $("activityInflightCount").textContent=list.length+" active · "+executing+" executing · "+waiting+" waiting";
+  $("inflightEmpty").style.display=list.length?"none":"block";
+  list.forEach(q=>{
+    const tr=document.createElement("tr");
+    const state=states[list.indexOf(q)];
+    const cells=[q.id||"—",state,activityElapsed(q.timestamp),q.model||"—",(q.method||"POST")+" "+(q.req_path||"—"),headerValue(q.req_headers,"User-Agent"),requestIdentity(q.req_headers,q.remote_ip)];
+    cells.forEach((v,i)=>{const td=document.createElement("td");td.textContent=v;if(i===1)td.className=state==="executing"?"status-ok":"muted";if(i===3)td.className="model";if(i===2)td.className="muted";tr.appendChild(td);}); rows.appendChild(tr);
+  });
+}
+function renderActivityRows(){
+  const rows=$("activityRows"); rows.textContent="";
+  const list=S.activity||[];
+  $("activityEmpty").style.display=list.length?"none":"block";
+  list.forEach(m=>{
+    const t=m.tokens||{}, tr=document.createElement("tr");
+    const status=Number(m.resp_status_code||0), h=S.captureHeaders[m.id]||{}, cells=[m.id||"—",m.timestamp?new Date(m.timestamp).toLocaleString():"—",m.model||"—",status||"—",activityNum(t.cache_tokens,"—"),activityNum(t.input_tokens,"0"),activityNum(t.output_tokens,"0"),activityRate(t.prompt_per_second),activityRate(t.tokens_per_second),activityDuration(m.duration_ms),requestIdentity(h,firstHeaderValue(h,["X-Forwarded-For","X-Real-IP"]))];
+    cells.forEach((v,i)=>{const td=document.createElement("td");if(i===2){td.className="model";const b=document.createElement("button");b.className="activity-model-link";b.textContent=v;b.onclick=()=>openModelActivity(v);td.appendChild(b);}else{td.textContent=v;}if(i===3)td.className=status>=400?"status-err":"status-ok";tr.appendChild(td);}); rows.appendChild(tr);
+  });
+  $("activityUpdated").textContent=list.length?"updated "+new Date().toLocaleTimeString():"—";
+}
+function openModelActivity(model){
+  if(S.activityModel===model){closeModelActivity();return;}
+  S.activityModel=model; S.activityPage=1;
+  S.activitySummaryAt=0;
+  document.body.classList.add("model-filter-active");
+  $("activityScope").textContent="Model activity";
+  $("activityModel").textContent=model;
+  $("activityBack").style.display="inline-flex";
+  loadActivity(); renderInflight(); renderContextRows();
+}
+function closeModelActivity(){
+  S.activityModel=""; S.activityPage=1;
+  S.activitySummaryAt=0;
+  document.body.classList.remove("model-filter-active");
+  $("activityScope").textContent="Request activity";
+  $("activityModel").textContent="";
+  $("activityBack").style.display="none";
+  loadActivity(); renderInflight(); renderContextRows();
+}
+function renderActivityPager(){
+  const total=S.activityTotalPages, page=S.activityPage, box=$("activityPages");
+  box.textContent="";
+  const start=Math.max(1,Math.min(page-2,total-4)), end=Math.min(total,start+4);
+  for(let n=start;n<=end;n++){
+    const b=document.createElement("button"); b.className="btn pagebtn"+(n===page?" current":""); b.textContent=n; b.disabled=n===page; b.onclick=()=>{S.activityPage=n;loadActivity();}; box.appendChild(b);
+  }
+  $("activityFirst").disabled=page<=1; $("activityPrev").disabled=page<=1;
+  $("activityNext").disabled=page>=total; $("activityLast").disabled=page>=total;
+}
+function syncActivityMetrics(){
+  const list=S.activity||[];
+  const usable=list.filter(m=>{
+    const t=m&&m.tokens||{};
+    return (t.input_tokens||0)>0 || (t.output_tokens||0)>0;
+  });
+  const latest=usable[0];
+  if(latest){
+    const t=latest.tokens||{};
+    S.lastMetric=latest;
+    S.lastGoodMetric=latest;
+    S.lastPromptRate=t.prompt_per_second>0?t.prompt_per_second:0;
+    S.lastDecodeRate=t.tokens_per_second>0?t.tokens_per_second:0;
+  }
+  S.decHist=list.slice().reverse().filter(m=>{
+    const t=m&&m.tokens||{}; return t.output_tokens>0&&t.tokens_per_second>0&&t.tokens_per_second<=TPS_SANE;
+  }).slice(-DEC_HIST).map(m=>({t:Date.parse(m.timestamp)||Date.now(),tps:m.tokens.tokens_per_second}));
+  renderTiles(); drawDecode();
+}
+async function loadCaptureHeaders(list){
+  const pending=list.filter(m=>m.has_capture&&m.id!=null&&!S.captureHeaders[m.id]&&!S.captureLoading.has(m.id));
+  if(!pending.length) return;
+  pending.forEach(m=>S.captureLoading.add(m.id));
+  await Promise.all(pending.map(async m=>{
+    try{
+      const r=await fetch("/api/captures/"+encodeURIComponent(m.id),{cache:"no-store"});
+      if(r.ok){const d=await r.json(); S.captureHeaders[m.id]=d.req_headers||{};}
+    }catch(e){} finally { S.captureLoading.delete(m.id); }
+  }));
+  renderActivityRows();
+}
+async function loadActivity(){
+  try{
+    const [pageRes,statsRes]=await Promise.all([
+      fetch("/api/metrics/activity?limit=100&page="+S.activityPage+"&sort=id&order=desc"+(S.activityModel?"&model="+encodeURIComponent(S.activityModel):""),{cache:"no-store"}),
+      fetch("/api/metrics/stats"+(S.activityModel?"?model="+encodeURIComponent(S.activityModel):""),{cache:"no-store"})
+    ]);
+    let pageData=null, statsData=null;
+    if(pageRes.ok){pageData=await pageRes.json();S.activity=pageData.data||[];S.activityTotalPages=pageData.total_pages||1;renderActivityPager();renderActivityRows();if(S.activityPage===1)syncActivityMetrics();loadCaptureHeaders(S.activity);}
+    if(statsRes.ok){statsData=await statsRes.json();renderActivityStats(statsData);}
+    if(pageData&&statsData) loadActivitySummary(statsData);
+  }catch(e){ /* older llama-swap versions may not expose activity endpoints */ }
+}
+async function loadActivitySummary(stats){
+  if(Date.now()-S.activitySummaryAt<5000) return;
+  S.activitySummaryAt=Date.now();
+  const seq=++S.activitySummarySeq;
+  const base="/api/metrics/activity?limit=100&sort=id&order=desc"+(S.activityModel?"&model="+encodeURIComponent(S.activityModel):"");
+  try{
+    const first=await fetch(base+"&page=1",{cache:"no-store"}); if(!first.ok)return;
+    const firstData=await first.json(); let rows=firstData.data||[];
+    const totalPages=Number(firstData.total_pages||1);
+    if(totalPages>1){
+      const rest=await Promise.all(Array.from({length:totalPages-1},(_,i)=>fetch(base+"&page="+(i+2),{cache:"no-store"}).then(r=>r.ok?r.json():null)));
+      rest.forEach(p=>{if(p&&Array.isArray(p.data))rows=rows.concat(p.data);});
+    }
+    if(seq===S.activitySummarySeq){
+      S.activityHistory=rows;
+      renderActivitySummary(stats,rows);
+      renderContextRows();
+    }
+  }catch(e){}
+}
+
+function renderContextRows(){
+  const wrap=$("ctxRows"); if(!wrap) return;
+  wrap.textContent="";
+  const models=S.loadedModels;
+  if(!models.length){ wrap.innerHTML='<div class="empty">no loaded model</div>'; return; }
+  models.forEach((m,modelIndex)=>{
+    const contextSlot=S.contextSlots[m.id]||null;
+    const max=S.ctxById[m.id]||(contextSlot&&contextSlot.nctx)||0, primary=S.running&&S.running.id===m.id;
+    const slot=primary&&S.inflight>0?S.slot:null;
+    const gm=primary?S.lastGoodMetric:null;
+    const lastModelMetric=S.activity.find(x=>x.model===m.id);
+    const input=slot?slot.input:(gm&&gm.tokens?gm.tokens.input_tokens:null);
+    const output=slot?slot.decoded:(gm&&gm.tokens?gm.tokens.output_tokens:null);
+    const fallbackUsed=lastModelMetric&&lastModelMetric.tokens ? (lastModelMetric.tokens.input_tokens||0)+(lastModelMetric.tokens.output_tokens||0) : null;
+    const used=contextSlot&&contextSlot.used!=null ? contextSlot.used : ((input!=null||output!=null)?(input||0)+(output||0):fallbackUsed);
+    const pct=max&&used!=null?clamp(used/max*100,0,100):0;
+    const free=used!=null?Math.max(0,100-pct):null;
+    const item=document.createElement("div"); item.className="ctxitem"+(S.activityModel===m.id?" selected":""); item.onclick=()=>S.activityModel===m.id?closeModelActivity():openModelActivity(m.id);
+    item.style.setProperty("--model-color",["var(--g0)","var(--g1)","var(--g2)","var(--cpu)"][modelIndex%4]);
+    const row=document.createElement("div"); row.className="ctxrow";
+    const name=document.createElement("span"); name.className="ctxname"; name.textContent=m.name||m.id;
+    const state=document.createElement("span"); state.className="badge ctxstate "+(m.state === "loading" ? "loading" : "serving"); state.textContent=m.state === "loading" ? "loading" : "loaded";
+    const nums=document.createElement("span"); nums.className="ctxnums";
+    nums.innerHTML="<b>"+(used!=null?kTok(used):"—")+"</b> / "+(max?kTok(max):"—")+" used · <b>"+(free!=null?(free<10?free.toFixed(1):Math.round(free))+"%":"—")+"</b> free";
+    row.append(name,state,nums);
+    const track=document.createElement("div"); track.className="track ctxtrack";
+    const fill=document.createElement("div"); fill.className="fill"; fill.style.width=pct.toFixed(1)+"%"; fill.style.background=pct>=80?cssv("--crit"):pct>=60?cssv("--warn"):cssv("--good");
+    track.appendChild(fill);
+    const resource=S.modelResources[m.id]||{};
+    const resourceLine=document.createElement("div"); resourceLine.className="model-resource";
+    const vram=document.createElement("span"); vram.innerHTML="VRAM <b>"+(resource.vram_mb!=null&&resource.pid?((resource.vram_mb/1024).toFixed(1)+" GB"):"—")+"</b>";
+    const gpu=document.createElement("span"); gpu.innerHTML="GPU <b>"+(resource.pid!=null?(Number(resource.util_pct||0).toFixed(0)+"%"):"—")+"</b>";
+    resourceLine.append(vram,gpu);
+    const meta=modelActivitySummary(m.id);
+    const process=document.createElement("div"); process.className="model-resource";
+    process.innerHTML="parallel <b>"+(m.parallel??"—")+"</b><span>uptime <b>"+(resource.uptime_s!=null?formatUptime(resource.uptime_s):"—")+"</b></span>";
+    const activity=document.createElement("div"); activity.className="model-resource";
+    activity.innerHTML="requests <b>"+meta.requests+"</b><span>tokens <b>"+shortTokens(meta.prompt)+" in · "+shortTokens(meta.generated)+" out</b></span><span>speed <b>"+(meta.avg?meta.avg.toFixed(1)+" tok/s · p95 "+meta.p95.toFixed(1):"—")+"</b></span><span>errors <b>"+meta.errors+"</b></span>";
+    const ttl=document.createElement("span"); ttl.innerHTML="TTL <b>"+(m.ttl>0?formatUptime(m.ttl):"off")+"</b>"; activity.appendChild(ttl);
+    item.append(row,track,resourceLine,process,activity); wrap.appendChild(item);
+  });
+}
+async function pollContextSlots(){
+  const models=S.loadedModels;
+  if(!models.length) return;
+  await Promise.all(models.map(async m=>{
+    try{
+      const r=await fetch("/_slots?model="+encodeURIComponent(m.id),{cache:"no-store"});
+      if(!r.ok){delete S.contextSlots[m.id];return;}
+      const raw=await r.json();
+      const slots=Array.isArray(raw)?raw:[];
+      if(slots.length){
+        const used=slots.reduce((sum,x)=>sum+Number(x.n_prompt_tokens??x.n_tokens??0),0);
+        const nctx=Number((slots.find(x=>x.n_ctx!=null)||{}).n_ctx||0);
+        S.contextSlots[m.id]={used,nctx};
+      }
+    }catch(e){}
+  }));
+  renderContextRows();
+}
+async function pollModelResources(){
+  try{
+    const r=await fetch("/_model_resources",{cache:"no-store"});
+    if(!r.ok) return;
+    const data=await r.json(); S.modelResources={};
+    (data.models||[]).forEach(m=>{S.modelResources[m.id]=m;});
+    renderContextRows();
+  }catch(e){}
+}
+async function loadSystemInfo(){
+  try{
+    const r=await fetch("/_system_info",{cache:"no-store"});
+    if(r.ok){const d=await r.json();if(d.cpu_model) S.cpuModel=d.cpu_model;renderCards();}
+  }catch(e){}
+}
+async function pollHostMetrics(){
+  try{
+    const r=await fetch("/_host_metrics",{cache:"no-store"}); if(!r.ok)return;
+    const d=await r.json(), now=Date.now(), prev=S.hostMetrics;
+    if(prev&&S.hostMetricsAt){
+      const dt=(now-S.hostMetricsAt)/1000;
+      d.network_rx_bps=Math.max(0,(d.network.rx_bytes-prev.network.rx_bytes)/dt);
+      d.network_tx_bps=Math.max(0,(d.network.tx_bytes-prev.network.tx_bytes)/dt);
+    }
+    S.hostMetrics=d; S.hostMetricsAt=now; renderHostMetrics();
+  }catch(e){}
+}
+async function pollGpuLimits(){
+  try{
+    const r=await fetch("/_gpu_limits",{cache:"no-store"}); if(!r.ok)return;
+    const d=await r.json(); S.gpuLimits=d.limits||{}; renderCards();
+  }catch(e){}
+}
+function renderHostMetrics(){
+  const d=S.hostMetrics; if(!d)return;
+  $("hostCpuTemp").textContent=d.cpu_temp_c!=null?d.cpu_temp_c.toFixed(0)+"°C":"—";
+  $("hostDisk").textContent=d.disk&&d.disk.total_bytes?formatBytes(d.disk.used_bytes)+" / "+formatBytes(d.disk.total_bytes):"—";
+  $("hostDiskLabel").textContent=d.disk&&d.disk.path?d.disk.path+" Partition":"Partition";
+  $("hostDisk").title=d.disk&&d.disk.path?d.disk.path:"model partition unavailable";
+  $("hostNetwork").textContent=d.network_rx_bps!=null?formatBytes(d.network_rx_bps)+"/s in · "+formatBytes(d.network_tx_bps)+"/s out":"—";
+}
+
 /* ---------- stat tiles ---------- */
 function renderTiles(){
   const r = S.running;
-  $("tModel").textContent = r ? (r.name||r.id) : "—";
-  $("tModel").title = r ? (r.name||r.id) : "";
-  const badge = $("tModelBadge");
-  if(!r){ badge.className="badge stopped"; badge.textContent="idle"; }
-  else if(r.state==="ready"||r.state==="running"){ badge.className="badge serving"; badge.textContent="serving"; }
-  else { badge.className="badge loading"; badge.textContent=r.state||"loading"; }
-  const ctx = r ? S.ctxById[r.id] : null;
-  $("tCtx").textContent = ctx ? (ctx>=1024?(ctx/1024).toFixed(0)+"K ctx":ctx+" ctx") : "— ctx";
+  const loaded = S.loadedModels;
+  const modelName = m => m && (m.name || m.id) || "unknown model";
+  $("tModel").title = loaded.map(modelName).join("\n");
+  $("tModel").textContent = loaded.length ? loaded.length+" model"+(loaded.length===1?"":"s")+" loaded" : "—";
+  $("tModelSub").textContent = S.swapCount
+    ? "swaps "+S.swapCount+" · last "+(S.lastSwapModel||"model")+" · "+new Date(S.lastSwapAt).toLocaleTimeString()
+    : "swaps 0 · no swap recorded";
 
   const busy = S.inflight>0;
   // /_slots reads the loaded model directly, so it's always current (or null during a swap/load)
@@ -532,21 +1001,9 @@ function renderTiles(){
   // System power tile is driven server-side by pollEnergy()/renderPower() — the
   // sampler in serve.py accumulates energy whether or not this page is open.
 
-  // context window: prompt+output ≈ current KV occupancy vs the model's ctx-size (live n_ctx when generating)
-  const maxTok = slot&&slot.nctx ? slot.nctx : (S.running ? S.ctxById[S.running.id] : null);
-  const usedTok = (it!=null||ot!=null) ? ((it||0)+(ot||0)) : null;
-  if(maxTok && usedTok!=null){
-    const usedPct = clamp(usedTok/maxTok*100,0,100), freePct = Math.max(0,100-usedPct);
-    $("ctxUsed").textContent = kTok(usedTok);
-    $("ctxMax").textContent = kTok(maxTok);
-    $("ctxFree").textContent = (freePct<10?freePct.toFixed(1):Math.round(freePct))+"%";
-    $("ctxFill").style.width = usedPct.toFixed(1)+"%";
-    $("ctxFill").style.background = usedPct>=80?cssv("--crit"):usedPct>=60?cssv("--warn"):cssv("--good");
-    $("ctxModel").textContent = S.running ? (S.running.name||S.running.id) : "";
-  }else{
-    $("ctxUsed").textContent="—"; $("ctxMax").textContent = maxTok?kTok(maxTok):"—";
-    $("ctxFree").textContent="—"; $("ctxFill").style.width="0%"; $("ctxModel").textContent="";
-  }
+  // Show one context bar per loaded model. Live occupancy is available for
+  // the primary in-flight model; other loaded models still show capacity.
+  renderContextRows();
 }
 
 /* ---------- device cards ---------- */
@@ -560,7 +1017,8 @@ function renderCards(){
     const g = S.gpus[id]; if(!g) continue;
     const util = g.gpu_util_pct||0;
     const vramPct = g.mem_total_mb? (g.mem_used_mb/g.mem_total_mb*100):0;
-    const powPct = g.power_draw_w/POWER_MAX*100;
+    const powerLimit=S.gpuLimits[String(g.id)]||null;
+    const powPct = powerLimit?g.power_draw_w/powerLimit*100:0;
     const serving = util>0 ? '<span class="badge serving">active</span>' : '<span class="badge stopped">idle</span>';
     const tC = g.temp_c||0;
     const tColor = tC>=75?cssv("--crit"):tC>=60?cssv("--warn"):"var(--text)";
@@ -569,7 +1027,7 @@ function renderCards(){
         <div class="csub">${(g.mem_total_mb/1024).toFixed(0)} GB · gpu${g.id}</div></div>${serving}</div>
       ${meter("GPU util", util.toFixed(0)+"%", util, loadColor(util,60,80))}
       ${meter("VRAM", (g.mem_used_mb/1024).toFixed(1)+" / "+(g.mem_total_mb/1024).toFixed(0)+" GB", vramPct, loadColor(vramPct,60,80))}
-      ${meter("Power", Math.round(g.power_draw_w)+" / "+POWER_MAX+" W", powPct, loadColor(powPct,60,80))}
+      ${meter("Power", powerLimit?Math.round(g.power_draw_w)+" / "+Math.round(powerLimit)+" W":Math.round(g.power_draw_w)+" W", powPct, powerLimit?loadColor(powPct,60,80):"var(--muted-2)")}
       <div class="statline">
         <div class="s"><div class="k">Temp</div><div class="n" style="color:${tColor}">${tC}°C</div></div>
         <div class="s"><div class="k">Fan</div><div class="n">${(g.fan_speed_pct||0).toFixed(0)}%</div></div>
@@ -583,7 +1041,7 @@ function renderCards(){
     const cpuAvg=cpuAvgOf(s);
     const ramPct=s.mem_total_mb? s.mem_used_mb/s.mem_total_mb*100:0;
     parts.push(`<div class="panel card">
-      <div class="chead"><div><div class="cname">System <span>· i7-6700</span></div>
+      <div class="chead"><div><div class="cname">System <span>· ${S.cpuModel}</span></div>
         <div class="csub">${cores.length} threads · ${(s.mem_total_mb/1024).toFixed(0)} GB RAM</div></div>
         <span class="badge ${cpuAvg>5?'serving':'stopped'}">${cpuAvg>5?'busy':'idle'}</span></div>
       ${meter("CPU", cpuAvg.toFixed(0)+"%", cpuAvg, loadColor(cpuAvg,70,90))}
@@ -787,11 +1245,23 @@ async function resyncRunning(){
   try{
     const res=await fetch("/running",{cache:"no-store"}); if(!res.ok) return;
     const list=(await res.json()).running||[];
-    const run=list.find(m=>m.state!=="stopped"&&m.state!=="stopping")||list[0]||null;
+    const loaded=list.filter(m=>m.state!=="stopped"&&m.state!=="stopping");
+    const run=loaded[0]||null;
     const cur=run?{id:run.model,name:run.name,state:run.state}:null;
-    if((cur&&cur.id)!==(S.running&&S.running.id) || (cur&&cur.state)!==(S.running&&S.running.state)){
+    const signature = a => a.map(m=>(m.model||m.id)+":"+(m.state||"")).sort().join("|");
+    const metadataMissing=loaded.some(m=>{
+      const old=S.loadedModels.find(x=>x.id===(m.model||m.id));
+      return !old||old.cmd!==m.cmd||(old.parallel??null)!==(modelParallel(m.cmd)??null);
+    });
+    if(signature(loaded)!==signature(S.loadedModels) || (cur&&cur.id)!==(S.running&&S.running.id) || metadataMissing){
+      if(S.running && (!cur || cur.id!==S.running.id)){
+        S.swapCount++;
+        S.lastSwapAt=Date.now();
+        S.lastSwapModel=cur&&cur.id||S.running.id;
+      }
+      S.loadedModels=loaded.map(m=>({id:m.model||m.id,name:m.name||m.model||m.id,state:m.state,cmd:m.cmd,ttl:m.ttl,parallel:modelParallel(m.cmd)}));
       S.running=cur;
-      if(run){ const mm=/--ctx-size\s+(\d+)/.exec(run.cmd||""); if(mm) S.ctxById[cur.id]=parseInt(mm[1],10); }
+      loaded.forEach(m=>{ const mm=/--ctx-size\s+(\d+)/.exec(m.cmd||""); if(mm) S.ctxById[m.model||m.id]=parseInt(mm[1],10); });
       renderTiles();
     }
   }catch{}
@@ -809,6 +1279,7 @@ function connect(){
     switch(env.type){
       case "modelStatus": onModels(payload); break;
       case "metrics": onMetrics(payload); break;
+      case "activity": loadActivity(); break;
       case "logData": onLog(payload); break;
       case "inflight": onInflight(payload); break;
     }
@@ -826,14 +1297,28 @@ function setConn(state){
 function onModels(arr){
   if(!Array.isArray(arr)) return;
   S.models=arr;
-  const run=arr.find(m=>m.state && m.state!=="stopped" && m.state!=="stopping");
+  const loaded=arr.filter(m=>m.state && m.state!=="stopped" && m.state!=="stopping");
+  const run=loaded[0];
   const changed = (run&&run.id) !== (S.running&&S.running.id);
+  if(S.running && changed){
+    S.swapCount++;
+    S.lastSwapAt=Date.now();
+    S.lastSwapModel=run&&run.id||S.running.id;
+  }
+  loaded.forEach(m=>{m.parallel=modelParallel(m.cmd);});
+  S.loadedModels=loaded;
   S.running=run||null;
   renderTiles();
-  if(run && (changed || S.ctxById[run.id]==null)) fetchCtx();
+  // A new model can be added without changing the primary model. Refresh the
+  // context map whenever any loaded model is still missing its --ctx-size.
+  const missingCtx=loaded.some(m=>S.ctxById[m.id]==null);
+  if(loaded.length && (changed || missingCtx)) fetchCtx();
 }
 function onMetrics(arr){
   if(!Array.isArray(arr)) return;
+  // The event stream sends newly completed rows; keep the table live between API refreshes.
+  arr.forEach(m=>{ if(m&&m.id!=null) S.activity=[m,...S.activity.filter(x=>x.id!==m.id)].slice(0,25); });
+  renderActivityRows();
   arr.forEach(m=>{
     if(!m||!m.tokens) return;
     S.lastMetric=m;
@@ -849,13 +1334,23 @@ function onMetrics(arr){
   renderTiles(); drawDecode();
 }
 function onInflight(o){
-  const n=(o&&o.total)||0;
+  if(Array.isArray(o&&o.requests)) S.inflightRequests=o.requests;
+  else if(o&&o.operation==="remove"&&o.id!=null){
+    S.inflightRequests=S.inflightRequests.filter(q=>q.id!==o.id);
+  } else if(o&&o.request){
+    const id=o.request.id;
+    S.inflightRequests=[...S.inflightRequests.filter(q=>q.id!==id),o.request];
+  }
+  // Incremental SSE events carry only the changed request, so calculate the
+  // displayed count after applying the change (the old code was one event late).
+  const n=S.inflightRequests.length;
+  renderInflight();
   S.inflight=n;
   $("inflightN").textContent=n;
   $("inflight").className="pill"+(n>0?" live":"");
   // poll llama-server /slots ONLY while a request is active (never touches the idle-unload timer)
-  if(n>0 && !S.slotTimer){ pollSlots(); S.slotTimer=setInterval(pollSlots, 700); }
-  else if(n<=0 && S.slotTimer){ clearInterval(S.slotTimer); S.slotTimer=null; S.slot=null; S._slotPrev=null; S.slotRate=0; }
+  if(n>0 && !S.slotTimer){ pollSlots(); pollAllRequestSlots(); S.slotTimer=setInterval(()=>{pollSlots();pollAllRequestSlots();}, 700); }
+  else if(n<=0 && S.slotTimer){ clearInterval(S.slotTimer); S.slotTimer=null; S.slot=null; S._slotPrev=null; S.slotRate=0; S.slotByModel={}; S.slotByRequest={}; }
   renderTiles();
 }
 
@@ -885,6 +1380,31 @@ async function pollSlots(){
     S.slot={proc:!!s.is_processing, input:Math.max(0,npt-decoded), decoded, nctx:s.n_ctx||0};
     renderTiles();
   }catch{ /* transient */ }
+}
+async function pollAllRequestSlots(){
+  if(S.inflight<=0)return;
+  const byModel={}, byRequest={};
+  await Promise.all((S.loadedModels||[]).map(async model=>{
+    try{
+      const r=await fetch("/_slots?model="+encodeURIComponent(model.id),{cache:"no-store"});
+      if(!r.ok)return;
+      const slots=await r.json();
+      let executing=0, waiting=0, tokens=0;
+      (Array.isArray(slots)?slots:[]).forEach(s=>{
+        const active=!!s.is_processing||Number(s.n_prompt_tokens||0)>0||Number(s.n_decoded||0)>0||Number(s.id_task??-1)>=0;
+        if(!active)return;
+        const explicitWaiting=!!s.is_waiting||s.state==="waiting"||s.status==="waiting"||s.state==="queued"||s.status==="queued";
+        const processing=!!s.is_processing||!explicitWaiting;
+        if(processing)executing++;else waiting++;
+        const decoded=Number(((s.next_token&&s.next_token[0])||{}).n_decoded||s.n_decoded||0);
+        const n=Number(s.n_prompt_tokens||0)+decoded; tokens+=n;
+        const id=s.id_task??s.id??s.id_slot;
+        if(id!=null&&Number(id)>=0)byRequest[String(id)]={processing,waiting:explicitWaiting,tokens:n};
+      });
+      byModel[model.id]={executing,waiting,tokens};
+    }catch(e){}
+  }));
+  S.slotByModel=byModel; S.slotByRequest=byRequest; renderInflight();
 }
 
 /* ---------- logs ---------- */
@@ -978,6 +1498,19 @@ $("themeBtn").onclick=()=>{
 };
 
 /* ---------- UI wiring ---------- */
+function setMonitorView(view){
+  document.body.classList.toggle("activity-mode", view==="activity");
+  document.querySelectorAll(".view-tabs .tab").forEach(b=>b.classList.toggle("active", b.dataset.view===view));
+}
+document.querySelectorAll(".view-tabs").forEach(tabs=>tabs.addEventListener("click",e=>{
+  const b=e.target.closest(".tab"); if(b&&b.dataset.view) setMonitorView(b.dataset.view);
+}));
+setMonitorView("activity");
+$("activityBack").onclick=closeModelActivity;
+$("activityFirst").onclick=()=>{if(S.activityPage>1){S.activityPage=1;loadActivity();}};
+$("activityPrev").onclick=()=>{ if(S.activityPage>1){S.activityPage--;loadActivity();} };
+$("activityNext").onclick=()=>{ if(S.activityPage<S.activityTotalPages){S.activityPage++;loadActivity();} };
+$("activityLast").onclick=()=>{if(S.activityPage<S.activityTotalPages){S.activityPage=S.activityTotalPages;loadActivity();}};
 $("logTabs").addEventListener("click",e=>{
   const b=e.target.closest(".tab"); if(!b)return;
   $("logTabs").querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
@@ -1104,8 +1637,15 @@ $("btnFollow").classList.add("on");   // follow (autoscroll) on by default
 applyTheme(currentTheme());           // sync icon + series colors to the pre-paint theme
 renderCards(); renderTiles(); redrawCharts();
 connect();
+loadSystemInfo();
 pollPerf(); setInterval(pollPerf, PERF_MS);
 pollEnergy(); setInterval(pollEnergy, ENERGY_MS);
+loadActivity(); setInterval(loadActivity, 2000);
+pollContextSlots(); setInterval(pollContextSlots, 1000);
+pollModelResources(); setInterval(pollModelResources, 2000);
+pollHostMetrics(); setInterval(pollHostMetrics, 3000);
+pollGpuLimits(); setInterval(pollGpuLimits, 10000);
+setInterval(()=>{ if(S.inflightRequests.length) renderInflight(); }, 1000);
 
 /* screenshot helper: ?shot closes the endless SSE so headless virtual-time can settle */
 if(location.search.includes("shot")) setTimeout(()=>{ try{es&&es.close();}catch{} }, 4000);
