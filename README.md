@@ -1,6 +1,6 @@
-# llama-swap rig monitor
+# llama-swap Monitor
 
-A single-page, real-time monitoring dashboard for a [llama-swap](https://github.com/mostlygeek/llama-swap) server. It shows the running model, live token throughput, context-window usage, per-GPU and system resources, and a streaming log viewer — all in one screen with a dark terminal aesthetic.
+A single-page, real-time monitoring dashboard for a llama-swap server. It shows loaded models, context usage, request activity, per-GPU resources, server telemetry, and streaming logs.
 
 ![dashboard](docs/screenshot.png)
 
@@ -8,14 +8,16 @@ A single-page, real-time monitoring dashboard for a [llama-swap](https://github.
 
 ## What it shows
 
-- **Model serving** — the currently loaded model, its state (serving / loading / idle), and configured context size.
+- **Model serving** — all loaded models in a responsive grid, state, context usage, parallel capacity, TTL, uptime, GPU/VRAM usage, and per-model request summaries.
 - **Prompt / decode throughput** — live tokens/sec while a request is generating; `0` when idle.
 - **Session tokens** — input + output of the current request (tracks the live conversation; resets when the client clears context).
 - **Context window** — a color-coded bar of current KV occupancy vs the model's `--ctx-size` (green → yellow at 60% → red at 80%), with percent free.
-- **System power** — estimated wall (AC) draw, plus an always-accumulating energy + cost total (`$/kWh`, global across browsers). **Hover the cost** for a donut breakdown of where the cost goes — **inference vs idle** — with each side's cost, share, kWh, and time.
-- **Per-GPU cards** — utilization, VRAM, power (same 60/80% thresholds), plus temp / fan / memory-util.
+- **System power** — estimated wall (AC) draw, plus an always-accumulating energy + cost total. **Hover the cost** for a donut breakdown of inference vs idle.
+- **Per-GPU cards** — utilization, VRAM, real power limit when available, current power, temperature, fan, and memory utilization.
 - **System card** — CPU (per-core) and RAM.
-- **Charts** — rolling GPU-utilization (per card) and decode-throughput history.
+- **Server telemetry** — CPU temperature, data-partition usage, and network throughput.
+- **Activity** — histograms, throughput, session tokens, completed requests, error rate, latency, cache coverage, in-flight requests, and paginated history.
+- **User / origin** — generic header detection with username → email → full name → IP fallback.
 - **Live logs** — streamed proxy/upstream logs with level coloring, source filter, wrap toggle, and a **follow** button that pins to the newest lines.
 - A **generating…** indicator that pulses while a request is in flight.
 
@@ -29,10 +31,12 @@ The whole UI is one self-contained `index.html` (vanilla JS/CSS, no build step, 
 |------|--------|
 | Model state, request metrics, streaming logs, in-flight count | `GET /api/events` (SSE) |
 | GPU + CPU/RAM stats | `GET /api/performance` (polled every 5s) |
-| Running model + `--ctx-size` | `GET /running` |
+| Running models, context, TTL and command configuration | `GET /running` |
+| Model activity and request history | `GET /api/metrics/activity`, `GET /api/metrics/stats` |
+| Server-side GPU limits and partition telemetry | local helper endpoints in `serve.py` |
 | Live per-token counts during generation | the llama-server `/slots` endpoint, read **directly** (see below) |
 
-Because llama-swap does **not** send CORS headers on its responses, a browser can't fetch it cross-origin. So `serve.py` — a ~130-line, pure-stdlib helper — serves the page and transparently proxies API calls to llama-swap on the **same origin**. It has no dependencies, no state, and no configuration files.
+Because llama-swap does **not** send CORS headers on its responses, a browser can't fetch it cross-origin. So `serve.py` serves the page and transparently proxies API calls to llama-swap on the **same origin**. It also reads server-side metrics such as GPU power limits and the partition containing the model files.
 
 ### Why `/slots` is read directly (swap-safety)
 
@@ -56,7 +60,7 @@ cd ~/dashboard
 ### Run it directly
 
 ```bash
-python3 serve.py            # serves on 0.0.0.0:8090, proxying llama-swap at 127.0.0.1:8080
+python3 serve.py            # serves on 0.0.0.0:8090, proxying llama-swap at localhost:8081
 python3 serve.py --port 9000 --host 127.0.0.1
 ```
 
@@ -100,11 +104,11 @@ The `power.db` schema is migrated automatically on startup (new columns are adde
 
 Everything is a small edit near the top of the two files:
 
-- **Ports / hosts** — `serve.py`: `--port` / `--host` flags; `UPSTREAM` (llama-swap, `:8080`) constant. The llama-server upstream port is resolved dynamically from `/running` (llama-swap's per-model `${PORT}`), not a constant.
-- **Rig name in the title** — the page/tab title reads `<name> monitor`, where `<name>` defaults to the machine's **hostname**. Set the `RIG_NAME` environment variable to override it (e.g. `RIG_NAME=gpubox python3 serve.py`, or uncomment the `Environment=` line in the systemd unit).
+- **Ports / hosts** — `serve.py`: `--port` / `--host` flags and the `UPSTREAM` llama-swap constant. Set `UPSTREAM` to the llama-swap address when the helper runs on another host.
+- **Container metrics** — set `LLAMA_SWAP_CONTAINER` when `serve.py` needs to run `df`, CPU information, or GPU commands inside a Docker/Podman container.
 - **Bar thresholds** — `index.html`: GPU/system meters use `loadColor(pct, 60, 80)`; the context bar switches at 60% / 80%. Adjust to taste.
 - **Poll intervals / history depth** — `index.html` top of `<script>`: `PERF_MS` (perf poll), `HIST` (util history points), `DEC_HIST`, `LOG_CAP`, and the `/slots` interval in `onInflight`.
-- **Power bar scale** — `POWER_MAX` (per-GPU TDP in watts).
+- **GPU power limit** — read from `nvidia-smi` through `/_gpu_limits`; no fixed per-GPU wattage is assumed.
 - **Whole-system power model** — `serve.py`: `BASE_W` (mobo/drives/fans baseline, DC watts) and `PSU_EFF` (PSU DC→AC efficiency) are the only *estimated* terms in the wall figure; override without editing via `RIG_BASE_W` / `RIG_PSU_EFF` env vars. Set them from a Kill-A-Watt reading to calibrate. `SAMPLE_INTERVAL` (sampler period) and `RETAIN_DAYS` (time-series retention) also live here. Accumulated energy + $/kWh rate persist in `power.db` (sqlite, gitignored) and are global across browsers; reset via the ↺ on the tile.
 - **Inference-vs-idle threshold** — `serve.py`: `RIG_BUSY_UTIL` env var (default `5`) — the GPU-utilization percent above which a sample counts as *inference* rather than *idle* in the cost breakdown.
 
