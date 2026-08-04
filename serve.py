@@ -25,7 +25,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-UPSTREAM = "http://10.255.4.52:8081"
+UPSTREAM = "http://localhost:8081"
 # The loaded model's llama-server is reached DIRECTLY (not via llama-swap) so that
 # reading /slots can never trigger a model load/swap. llama-swap assigns each model
 # a fresh port (${PORT}), so the port is resolved per-request from /running rather
