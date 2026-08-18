@@ -1,5 +1,9 @@
 FROM python:3.11-alpine
 
+# The monitor uses docker exec to query nvidia-smi in the llama-swap
+# container when it runs in a separate container.
+RUN apk add --no-cache docker-cli procps
+
 WORKDIR /app
 
 COPY index.html serve.py ./

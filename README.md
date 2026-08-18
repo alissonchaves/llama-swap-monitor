@@ -122,7 +122,10 @@ If llama-swap runs in another container:
 
     docker run -d --name llama-swap-monitor \
       -p 8090:8090 \
+      --pid=host \
+      -v /var/run/docker.sock:/var/run/docker.sock \
       -e LLAMA_SWAP_UPSTREAM=http://llama-swap:8081 \
+      -e LLAMA_SWAP_CONTAINER=llama-swap \
       -v llama-swap-monitor-data:/app/data \
       llama-swap-monitor
 
