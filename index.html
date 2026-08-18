@@ -926,7 +926,11 @@ async function pollModelResources(){
     const r=await fetch("/_model_resources",{cache:"no-store"});
     if(!r.ok) return;
     const data=await r.json(); S.modelResources={};
-    (data.models||[]).forEach(m=>{S.modelResources[m.id]=m;});
+    (data.models||[]).forEach(m=>{
+      S.modelResources[m.id]=m;
+      if(m.model) S.modelResources[m.model]=m;
+      if(m.name) S.modelResources[m.name]=m;
+    });
     renderContextRows();
   }catch(e){}
 }

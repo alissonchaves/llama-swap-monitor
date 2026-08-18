@@ -412,11 +412,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 running = json.load(r).get("running") or []
         except Exception:
             return self._json({"models": []})
-        try:
-            ps = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=3)
-            processes = ps.stdout.splitlines() if ps.returncode == 0 else []
-        except Exception:
-            processes = []
+        # The monitor is often run as a separate container.  In that setup the
+        # llama-server PIDs and nvidia-smi PIDs only line up inside the
+        # llama-swap container, so prefer that namespace when it is available.
+        command_sets = []
+        if LLAMA_SWAP_CONTAINER:
+            command_sets += [
+                ["docker", "exec", LLAMA_SWAP_CONTAINER],
+                ["podman", "exec", LLAMA_SWAP_CONTAINER],
+            ]
+        command_sets.append([])
+
+        def run_in_namespace(args, timeout=4):
+            for prefix in command_sets:
+                try:
+                    p = subprocess.run(prefix + args, capture_output=True, text=True, timeout=timeout)
+                    if p.returncode == 0 and p.stdout.strip():
+                        return p.stdout
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            return ""
+
+        processes = run_in_namespace(["ps", "-eo", "pid=,args="], timeout=3).splitlines()
         pid_by_port = {}
         for line in processes:
             if "llama-server" not in line:
@@ -429,37 +446,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 pid_by_port[port.group(1)] = int(m.group(1))
 
         gpu_uuid = {}
-        try:
-            r = subprocess.run(["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"],
-                               capture_output=True, text=True, timeout=4)
-            for line in r.stdout.splitlines():
-                parts = [x.strip() for x in line.split(",")]
-                if len(parts) >= 2:
+        for line in run_in_namespace(
+                ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"]).splitlines():
+            parts = [x.strip() for x in line.split(",")]
+            if len(parts) >= 2:
+                try:
                     gpu_uuid[parts[1]] = int(parts[0])
-        except Exception:
-            pass
+                except ValueError:
+                    pass
         memory = {}
-        try:
-            r = subprocess.run(["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,used_gpu_memory",
-                                "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=4)
-            for line in r.stdout.splitlines():
-                parts = [x.strip() for x in line.split(",")]
-                if len(parts) >= 3:
-                    try: memory[(int(parts[1]), gpu_uuid.get(parts[0], parts[0]))] = float(parts[2])
-                    except (ValueError, TypeError): pass
-        except Exception:
-            pass
+        for line in run_in_namespace(
+                ["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,used_gpu_memory",
+                 "--format=csv,noheader,nounits"]).splitlines():
+            parts = [x.strip() for x in line.split(",")]
+            if len(parts) >= 3:
+                try:
+                    memory[(int(parts[1]), gpu_uuid.get(parts[0], parts[0]))] = float(parts[2])
+                except (ValueError, TypeError):
+                    pass
         util = {}
-        try:
-            r = subprocess.run(["nvidia-smi", "pmon", "-c", "1", "-s", "u"],
-                               capture_output=True, text=True, timeout=5)
-            for line in r.stdout.splitlines():
-                parts = line.split()
-                if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit():
-                    try: util[(int(parts[1]), int(parts[0]))] = float(parts[3])
-                    except ValueError: pass
-        except Exception:
-            pass
+        for line in run_in_namespace(["nvidia-smi", "pmon", "-c", "1", "-s", "u"], timeout=5).splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit():
+                try:
+                    util[(int(parts[1]), int(parts[0]))] = float(parts[3])
+                except ValueError:
+                    pass
         result = []
         for item in running:
             proxy = item.get("proxy") or ""
@@ -468,9 +480,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             uptime_s = None
             if pid:
                 try:
-                    et = subprocess.run(["ps", "-o", "etimes=", "-p", str(pid)],
-                                        capture_output=True, text=True, timeout=2)
-                    uptime_s = int(et.stdout.strip())
+                    et = run_in_namespace(["ps", "-o", "etimes=", "-p", str(pid)], timeout=2)
+                    uptime_s = int(et.strip())
                 except (ValueError, TypeError, OSError):
                     pass
             gpus = []
