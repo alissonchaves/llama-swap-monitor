@@ -105,7 +105,7 @@ The `power.db` schema is migrated automatically on startup (new columns are adde
 Everything is a small edit near the top of the two files:
 
 - **Ports / hosts** — `serve.py`: `--port` / `--host` flags and the `LLAMA_SWAP_UPSTREAM` environment variable. Set it to the llama-swap address when the helper runs on another host.
-- **Container metrics** — set `LLAMA_SWAP_CONTAINER` when `serve.py` needs to run `df`, CPU information, or GPU commands inside a Docker/Podman container.
+- **Container metrics** — set `LLAMA_SWAP_CONTAINER` to the actual llama-swap container name (for example, `llama-router`) when `serve.py` needs to run `df`, CPU information, or GPU commands inside a Docker/Podman container.
 - **Bar thresholds** — `index.html`: GPU/system meters use `loadColor(pct, 60, 80)`; the context bar switches at 60% / 80%. Adjust to taste.
 - **Poll intervals / history depth** — `index.html` top of `<script>`: `PERF_MS` (perf poll), `HIST` (util history points), `DEC_HIST`, `LOG_CAP`, and the `/slots` interval in `onInflight`.
 - **GPU power limit** — read from `nvidia-smi` through `/_gpu_limits`; no fixed per-GPU wattage is assumed.
@@ -125,7 +125,7 @@ If llama-swap runs in another container:
       --pid=host \
       -v /var/run/docker.sock:/var/run/docker.sock \
       -e LLAMA_SWAP_UPSTREAM=http://llama-swap:8081 \
-      -e LLAMA_SWAP_CONTAINER=llama-swap \
+      -e LLAMA_SWAP_CONTAINER=llama-router \
       -v llama-swap-monitor-data:/app/data \
       llama-swap-monitor
 
